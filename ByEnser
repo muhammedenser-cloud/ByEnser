@@ -1,0 +1,630 @@
+getgenv().SCRIPT_KEY = "KEYLESS"
+
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local runService = game:GetService("RunService")
+local players = game:GetService("Players")
+local camera = workspace.CurrentCamera
+local starterGui = game:GetService("StarterGui")
+local userInput = game:GetService("UserInputService")
+local lighting = game:GetService("Lighting")
+local tweenService = game:GetService("TweenService")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+
+local Keys = {
+    ToggleUI = Enum.KeyCode.RightControl,
+    ToggleAimbot = Enum.KeyCode.Z,
+    ToggleESP = Enum.KeyCode.X,
+    ToggleAutoShoot = Enum.KeyCode.C,
+    ToggleFly = Enum.KeyCode.V,
+    ToggleSpeed = Enum.KeyCode.B,
+    ToggleNoclip = Enum.KeyCode.N,
+    ToggleBombJump = Enum.KeyCode.M,
+    TeleportToGun = Enum.KeyCode.G,
+    FlingMurderer = Enum.KeyCode.F,
+    FlingSheriff = Enum.KeyCode.H,
+    MassKill = Enum.KeyCode.K,
+    ToggleTheme = Enum.KeyCode.T
+}
+
+local function getEnemies()
+    local list = {}
+    for _, p in pairs(players:GetPlayers()) do 
+        if p ~= player and p.Character then 
+            table.insert(list, p) 
+        end 
+    end
+    return list
+end
+
+local function getNearest()
+    local nearest, dist = nil, math.huge
+    for _, p in pairs(getEnemies()) do
+        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local pos = p.Character.HumanoidRootPart.Position
+            local d = (rootPart.Position - pos).Magnitude
+            if d < dist then dist = d; nearest = p end
+        end
+    end
+    return nearest
+end
+
+local function getMurderer()
+    for _, p in pairs(getEnemies()) do
+        if p.Character and p.Character:FindFirstChild("Humanoid") then
+            local hum = p.Character.Humanoid
+            if hum:FindFirstChild("Murderer") or hum:FindFirstChild("Katil") or hum:FindFirstChild("Killer") then
+                return p
+            end
+        end
+    end
+    return nil
+end
+
+local function getSheriff()
+    for _, p in pairs(getEnemies()) do
+        if p.Character and p.Character:FindFirstChild("Humanoid") then
+            local hum = p.Character.Humanoid
+            if hum:FindFirstChild("Sheriff") or hum:FindFirstChild("Serif") or hum:FindFirstChild("Sherif") then
+                return p
+            end
+        end
+    end
+    return nil
+end
+
+local function getPlayerRole(p)
+    if not p or not p.Character then return "Masum" end
+    local hum = p.Character:FindFirstChild("Humanoid")
+    if not hum then return "Masum" end
+    if hum:FindFirstChild("Murderer") or hum:FindFirstChild("Katil") or hum:FindFirstChild("Killer") then
+        return "Katil"
+    elseif hum:FindFirstChild("Sheriff") or hum:FindFirstChild("Serif") or hum:FindFirstChild("Sherif") then
+        return "Serif"
+    elseif hum:FindFirstChild("Hero") or hum:FindFirstChild("Kahraman") then
+        return "Kahraman"
+    else
+        return "Masum"
+    end
+end
+
+local function getPlayerColor(p)
+    local role = getPlayerRole(p)
+    if role == "Katil" then return Color3.new(1, 0, 0)
+    elseif role == "Serif" then return Color3.new(0, 0.3, 1)
+    elseif role == "Kahraman" then return Color3.new(1, 1, 0)
+    else return Color3.new(0, 1, 0) end
+end
+
+local function getAliveEnemies()
+    local list = {}
+    for _, p in pairs(getEnemies()) do
+        if p.Character then
+            local hum = p.Character:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 then table.insert(list, p) end
+        end
+    end
+    return list
+end
+
+local function getGunPositions()
+    local guns = {}
+    for _, tool in pairs(workspace:GetDescendants()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+            local name = tool.Name:lower()
+            if name:find("gun") or name:find("knife") or name:find("sword") or name:find("silah") then
+                table.insert(guns, {tool = tool, pos = tool.Handle.Position})
+            end
+        end
+    end
+    return 
+guns
+end
+local function getNearestGun()
+    local guns = getGunPositions()
+    if #guns > 0 then
+        local nearest, dist = nil, math.huge
+        for _, gun in pairs(guns) do
+            local d = (rootPart.Position - gun.pos).Magnitude
+            if d < dist then dist = d; nearest = gun end
+        end
+        return nearest
+    end
+    return nil
+end
+
+local function teleportToGun()
+    local nearest = getNearestGun()
+    if nearest then
+        rootPart.CFrame = CFrame.new(nearest.pos + Vector3.new(0, 3, 0))
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Silaha ışınlandın!", Duration = 2})
+    else
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Silah bulunamadı!", Duration = 2})
+    end
+end
+
+local aimbotEnabled = false
+local aimbotConnection = nil
+local aimbotTarget = nil
+local aimbotLocked = false
+
+local function toggleAimbot()
+    aimbotEnabled = not aimbotEnabled
+    if aimbotEnabled then
+        if aimbotConnection then aimbotConnection:Disconnect() end
+        aimbotConnection = runService.RenderStepped:Connect(function()
+            if aimbotEnabled then
+                local target = getMurderer() or getNearest()
+                if target and target.Character then
+                    local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+                    local tHead = target.Character:FindFirstChild("Head")
+                    local tHumanoid = target.Character:FindFirstChild("Humanoid")
+                    if tRoot and tHumanoid and tHumanoid.Health > 0 then
+                        aimbotTarget = target
+                        aimbotLocked = true
+                        local aimPart = tHead or tRoot
+                        local viewportPoint = camera:WorldToViewportPoint(aimPart.Position)
+                        local mouse = player:GetMouse()
+                        local currentPos = Vector2.new(mouse.X, mouse.Y)
+                        local targetPos2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
+                        local newPos = currentPos:Lerp(targetPos2D, 0.05)
+                        mouse.Move(newPos)
+                        local tool = character:FindFirstChildOfClass("Tool")
+                        if tool and (rootPart.Position - tRoot.Position).Magnitude < 300 then
+                            tool:Activate()
+                        end
+                    else
+                        aimbotLocked = false
+                    end
+                else
+                    aimbotLocked = false
+                end
+            end
+        end)
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Aimbot Aktif! [Z]", Duration = 2})
+    else
+        if aimbotConnection then aimbotConnection:Disconnect(); aimbotConnection = nil end
+        aimbotTarget = nil
+        aimbotLocked = false
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Aimbot Devre Dışı!", Duration = 2})
+    end
+end
+
+local espEnabled = false
+local espObjects = {}
+local espConnections = {}
+
+local function toggleESP()
+    espEnabled = not espEnabled
+    if espEnabled then
+        for _, p in pairs(players:GetPlayers()) do
+            if p ~= player and p.Character then
+                local char = p.Character
+                local hum = char:FindFirstChild("Humanoid")
+                if hum then
+                    local role = getPlayerRole(p)
+                    local color = getPlayerColor(p)
+                    local highlight = Instance.new("Highlight")
+                    highlight.Adornee = char
+                    highlight.FillColor = color
+                    highlight.FillTransparency = 0.2
+                    highlight.OutlineColor = Color3.new(1, 1, 1)
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.Parent = char
+                    table.insert(espObjects, highlight)
+                    local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                    if head then
+                        local bill = Instance.new("BillboardGui")
+                        bill.Size = UDim2.new(0, 120, 0, 30)
+                        bill.AlwaysOnTop = true
+                        bill.Parent = head
+                        local label = Instance.new("TextLabel")
+                        label.Size = UDim2.new(1, 0, 1, 0)
+                        label.BackgroundTransparency = 1
+                        label.Text = p.Name .. " [" .. role .. "]"
+                        label.TextColor3 = color
+                        label.TextSize = 14
+                        label.Font = Enum.Font.GothamBold
+                        label.TextStrokeTransparency = 0
+                        label.TextStrokeColor3 = Color3.new(0, 0, 0)
+                        label.Parent = bill
+                        table.insert(espObjects, bill)
+                    end
+                end
+            end
+        end
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "ESP Aktif! [X]", Duration = 2})
+    else
+        for _, obj in pairs(espObjects) do obj:Destroy() end
+        espObjects = {}
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "ESP Devre Dışı!", Duration = 2})
+    end
+end
+
+local autoShoot = false
+local autoShootConnection = nil
+
+local function toggleAutoShoot()
+    autoShoot = not autoShoot
+    if autoShoot then
+        if autoShootConnection then autoShootConnection:Disconnect() end
+        autoShootConnection = runService.Heartbeat:Connect(function()
+            if autoShoot then
+                local target = getMurderer() or getNearest()
+                if target and target.Character then
+                    local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+                    local tHumanoid = target.Character:FindFirstChild("Humanoid")
+                    if tRoot and tHumanoid and tHumanoid.Health > 0 then
+                        local distance = (rootPart.Position - tRoot.Position).Magnitude
+                        if distance < 300 then
+                            local tool = character:FindFirstChildOfClass("Tool")
+                            if tool then
+                                tool:Activate()
+                                task.wait(0.02)
+                                tool:Activate()
+                                task.wait(0.02)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Auto Shoot Aktif! [C]", Duration = 2})
+    else
+        if autoShootConnection then autoShootConnection:Disconnect(); autoShootConnection = nil end
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Auto Shoot Devre Dışı!", Duration = 2})
+    end
+end
+
+local flying = false
+local flyVel = Instance.new("BodyVelocity")
+flyVel.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+local flyConnection = nil
+
+local function toggleFly()
+    flying = not flying
+    if flying then
+        flyVel.Parent = rootPart
+        flyVel.Velocity = Vector3.new(0, 50, 0)
+        if flyConnection then flyConnection:Disconnect() end
+        flyConnection = runService.Heartbeat:Connect(function()
+            if flying and rootPart then
+                flyVel.Velocity = Vector3.new(0, 50, 0)
+            end
+        end)
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Fly Aktif! [V]", Duration = 2})
+    else
+        flyVel:Destroy()
+        if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Fly Devre Dışı!", Duration = 2})
+    end
+end
+
+local speedBoost = false
+local speedBoostConnection = nil
+
+local function toggleSpeed()
+    speedBoost = not speedBoost
+    if speedBoost then
+        if speedBoostConnection then speedBoostConnection:Disconnect() end
+        speedBoostConnection = runService.Heartbeat:Connect(function()
+            if speedBoost and humanoid and rootPart then
+                local moveVector = humanoid.MoveDirection
+                if moveVector.Magnitude > 0 then
+                    rootPart.Velocity = moveVector * 300 + Vector3.new(0, rootPart.Velocity.Y, 0)
+                end
+                if humanoid:GetState() == Enum.HumanoidStateType.Jumping then
+                    rootPart.Velocity = rootPart.Velocity + moveVector * 1500
+                end
+            end
+        end)
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Speed Boost Aktif! [B]", Duration = 2})
+    else
+        if speedBoostConnection then speedBoostConnection:Disconnect(); speedBoostConnection = nil end
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Speed Boost Devre Dışı!", Duration = 2})
+    end
+end
+
+local noclip = false
+local noclipConnection = nil
+
+local function toggleNoclip()
+    noclip = not noclip
+    if noclip then
+        if noclipConnection then noclipConnection:Disconnect() end
+        noclipConnection = runService.Stepped:Connect(function()
+            if noclip and character then
+                for _, part in pairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "No Clip Aktif! [N]", Duration = 2})
+    else
+        if noclipConnection then noclipConnection:Disconnect(); noclipConnection = nil end
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "No Clip Devre Dışı!", Duration = 2})
+    end
+end
+
+local bombJump = false
+local bombJumpConnection = nil
+local bombJumpPower = 500
+
+local function toggleBombJump()
+    bombJump = not bombJump
+    if bombJump then
+        if bombJumpConnection then bombJumpConnection:Disconnect() end
+        bombJumpConnection = runService.Heartbeat:Connect(function()
+            if bombJump and humanoid then
+                if humanoid:GetState() == Enum.HumanoidStateType.Jumping then
+                    humanoid.JumpPower = bombJumpPower
+                    local explosion = Instance.new("Explosion")
+                    explosion.BlastRadius = 10
+                    explosion.BlastPressure = 500000
+                    explosion.Position = rootPart.Position - Vector3.new(0, 2, 0)
+                    explosion.Parent = workspace
+                    task.wait(0.2)
+                    humanoid.JumpPower = 50
+                end
+            end
+        end)
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Bomb Jump Aktif! [M]", Duration = 2})
+    else
+        if bombJumpConnection then bombJumpConnection:Disconnect(); bombJumpConnection = nil end
+        humanoid.JumpPower = 50
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Bomb Jump Devre Dışı!", Duration = 2})
+    end
+end
+
+local function flingMurderer()
+    local murderer = getMurderer()
+    if murderer and murderer.Character then
+        local tRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
+        local tHumanoid = murderer.Character:FindFirstChild("Humanoid")
+        if tRoot and tHumanoid and tHumanoid.Health > 0 then
+            tRoot.Velocity = Vector3.new(math.random(-20000,20000), math.random(15000,25000), math.random(-20000,20000))
+            tHumanoid.PlatformStand = true
+            task.wait(2)
+            tHumanoid.PlatformStand = false
+            starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Katil uçuruldu! [F]", Duration = 2})
+        end
+    else
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Katil bulunamadı!", Duration = 2})
+    end
+end
+
+local function flingSheriff()
+    local sheriff = getSheriff()
+    if sheriff and sheriff.Character then
+        local tRoot = sheriff.Character:FindFirstChild("HumanoidRootPart")
+        local tHumanoid = sheriff.Character:FindFirstChild("Humanoid")
+        if tRoot and tHumanoid and tHumanoid.Health > 0 then
+            tRoot.Velocity = Vector3.new(math.random(-20000,20000), math.random(15000,25000), math.random(-20000,20000))
+            tHumanoid.PlatformStand = true
+            task.wait(2)
+            tHumanoid.PlatformStand = false
+            starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Şerif uçuruldu! [H]", Duration = 2})
+        end
+    else
+        starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Şerif bulunamadı!", Duration = 2})
+    end
+end
+
+local function massKill()
+    local killed = 0
+    for _, enemy in pairs(getAliveEnemies()) do
+        if enemy and enemy.Character then
+            local tHumanoid = enemy.Character:FindFirstChild("Humanoid")
+            if tHumanoid and tHumanoid.Health > 0 then
+                rootPart.CFrame = CFrame.new(enemy.Character.HumanoidRootPart.Position + Vector3.new(0, 2, 0))
+                task.wait(0.02)
+                local tool = character:FindFirstChildOfClass("Tool")
+                if tool then
+                    tool:Activate()
+                    task.wait(0.02)
+                    tool:Activate()
+                    task.wait(0.02)
+                end
+                tHumanoid.Health = 0
+                killed = killed + 1
+                task.wait(0.02)
+            end
+        end
+    end
+    starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = killed .. " kişi öldürüldü! [K]", Duration = 2})
+end
+
+local themeIndex = 1
+local themes = {
+    {bg = Color3.new(0.05, 0.05, 0.08), btn = Color3.new(0.15, 0.15, 0.2), text = Color3.new(1, 0.3, 0.3)},
+    {bg = Color3.new(0.08, 0.05, 0.15), btn = Color3.new(0.2, 0.1, 0.3), text = Color3.new(0.8, 0.3, 1)},
+    {bg = Color3.new(0.05, 0.15, 0.05), btn = Color3.new(0.1, 0.3, 0.1), text = Color3.new(0.3, 1, 0.3)},
+    {bg = Color3.new(0.15, 0.15, 0.05), btn = Color3.new(0.3, 0.3, 0.1), text = Color3.new(1, 1, 0.3)},
+    {bg = Color3.new(0.15, 0.05, 0.05), btn = Color3.new(0.3, 0.1, 0.1), text = Color3.new(1, 0.3, 0.3)},
+    {bg = Color3.new(0.05, 0.05, 0.15), btn = Color3.new(0.1, 0.1, 0.3), text = Color3.new(0.3, 0.5, 1)},
+    {bg = Color3.new(0.15, 0.05, 0.1), btn = Color3.new(0.3, 0.1, 0.2), text = Color3.new(1, 0.4, 0.8)},
+    {bg = Color3.new(0.05, 0.1, 0.15), btn = Color3.new(0.1, 0.2, 0.3), text = Color3.new(0.3, 0.8, 1)}
+}
+
+local function toggleTheme()
+    themeIndex = themeIndex + 1
+    if themeIndex > #themes then themeIndex = 1 end
+    local theme = themes[themeIndex]
+    if mainFrame then mainFrame.BackgroundColor3 = theme.bg end
+    if titleBar then titleBar.BackgroundColor3 = theme.bg + Color3.new(0.1, 0.05, 0.05) end
+    if titleText then titleText.TextColor3 = theme.text end
+    starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "Tema Değiştirildi! [T]", Duration = 2})
+end
+
+userInput.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    local key = input.KeyCode
+    if key == Keys.ToggleUI then
+        if screenGui then
+            screenGui.Enabled = not screenGui.Enabled
+        end
+    elseif key == Keys.ToggleAimbot then
+        toggleAimbot()
+    elseif key == Keys.ToggleESP then
+        toggleESP()
+    elseif key == Keys.ToggleAutoShoot then
+        toggleAutoShoot()
+    elseif key == Keys.ToggleFly then
+        toggleFly()
+    elseif key == Keys.ToggleSpeed then
+        toggleSpeed()
+    elseif key == Keys.ToggleNoclip then
+        toggleNoclip()
+    elseif key == Keys.ToggleBombJump then
+        toggleBombJump()
+    elseif key == Keys.TeleportToGun then
+        teleportToGun()
+    elseif key == Keys.FlingMurderer then
+        flingMurderer()
+    elseif key == Keys.FlingSheriff then
+        flingSheriff()
+    elseif key == Keys.MassKill then
+        massKill()
+    elseif key == Keys.ToggleTheme then
+        toggleTheme()
+    end
+end)
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ByEnserHub"
+screenGui.Parent = player.PlayerGui
+screenGui.ResetOnSpawn = false
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 250, 0, 500)
+mainFrame.Position = UDim2.new(0, 10, 0, 10)
+mainFrame.BackgroundColor3 = Color3.new(0.05, 0.05, 0.08)
+mainFrame.BackgroundTransparency = 0.1
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 40)
+titleBar.BackgroundColor3 = Color3.new(0.2, 0.05, 0.05)
+titleBar.BackgroundTransparency = 0
+titleBar.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = titleBar
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(0.7, 0, 1, 0)
+titleText.Position = UDim2.new(0.05, 0, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "ByEnserHub"
+titleText.TextColor3 = Color3.new(1, 0.3, 0.3)
+titleText.TextSize = 18
+titleText.Font = Enum.Font.GothamBold
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = titleBar
+
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+minimizeBtn.Position = UDim2.new(0.7, 0, 0, 5)
+minimizeBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
+minimizeBtn.BackgroundTransparency = 0
+minimizeBtn.Text = "_"
+minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+minimizeBtn.TextSize = 18
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.Parent = titleBar
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 5)
+minCorner.Parent = minimizeBtn
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 30, 0, 30)
+closeBtn.Position = UDim2.new(0.88, 0, 0, 5)
+closeBtn.BackgroundColor3 = Color3.new(1, 0.2, 0.2)
+closeBtn.BackgroundTransparency = 0
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextSize = 16
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = titleBar
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 5)
+closeCorner.Parent = closeBtn
+
+local isMinimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        mainFrame.Size = UDim2.new(0, 250, 0, 40)
+        scrollFrame.Visible = false
+        minimizeBtn.Text = "+"
+    else
+        mainFrame.Size = UDim2.new(0, 250, 0, 500)
+        scrollFrame.Visible = true
+        minimizeBtn.Text = "_"
+    end
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, -10, 1, -50)
+scrollFrame.Position = UDim2.new(0, 5, 0, 45)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.Parent = mainFrame
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+local y = 5
+local function addButton(text, func, color, key)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -10, 0, 32)
+    btn.Position = UDim2.new(0, 5, 0, y)
+    btn.Text = text .. " [" .. key .. "]"
+    btn.BackgroundColor3 = color or Color3.new(0.15, 0.15, 0.2)
+    btn.BackgroundTransparency = 0
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.Gotham
+    btn.BorderSizePixel = 0
+    btn.Parent = scrollFrame
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 5)
+    btnCorner.Parent = btn
+    btn.MouseButton1Click:Connect(function() pcall(func) end)
+    y = y + 37
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, y + 10)
+end
+
+addButton("🎯 Aimbot", toggleAimbot, Color3.new(0.3, 0.1, 0.1), "Z")
+addButton("👤 ESP", toggleESP, Color3.new(0.1, 0.2, 0.1), "X")
+addButton("🔫 Auto Shoot", toggleAutoShoot, Color3.new(0.2, 0.1, 0.2), "C")
+addButton("🦅 Fly", toggleFly, Color3.new(0.1, 0.2, 0.3), "V")
+addButton("💨 Speed", toggleSpeed, Color3.new(0.2, 0.3, 0.1), "B")
+addButton("🌀 No Clip", toggleNoclip, Color3.new(0.2, 0.1, 0.3), "N")
+addButton("💥 Bomb Jump", toggleBombJump, Color3.new(0.3, 0.2, 0.1), "M")
+addButton("🔫 Teleport Gun", teleportToGun, Color3.new(0.1, 0.3, 0.2), "G")
+addButton("🔄 Fling Katil", flingMurderer, Color3.new(0.3, 0.1, 0.1), "F")
+addButton("🔄 Fling Şerif", flingSheriff, Color3.new(0.1, 0.1, 0.3), "H")
+addButton("💀 Mass Kill", massKill, Color3.new(0.3, 0.1, 0.1), "K")
+addButton("🎨 Tema", toggleTheme, Color3.new(0.2, 0.1, 0.3), "T")
+
+print("ByEnserHub Yüklendi!")
+starterGui:SetCore("SendNotification", {Title = "ByEnserHub", Text = "12 Özellik Yüklendi! [RightCtrl]", Duration = 3})
